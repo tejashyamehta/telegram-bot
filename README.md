@@ -66,4 +66,4 @@ Then make a POST request to `/launch` with the bot configuration.
 from main import launch_bot
 
 # Launch the bot with a specific name (defined in config.json)
-launch_bot("Luna")
+launch_bot("LunastalkerBot")
