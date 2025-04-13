@@ -3,3 +3,4 @@ uvicorn>=0.21.1
 telethon>=1.28.5
 aiohttp>=3.8.4
 pydantic>=1.10.7
+flask>=2.0.0

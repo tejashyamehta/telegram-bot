@@ -1,18 +1,14 @@
 {
-  "host": "0.0.0.0",
+  "host": "127.0.0.1",
   "port": 8000,
   "bots": {
-    "LunastalkerBot": { 
-      "api_id": "Enter your Api Id here",
-      "api_hash": "Enter your hash here",
-      "phone": "+917021427911",
-      "groups": [
-        "@Nssbcoder",
-        "@COINDCX_ANNOUNCEMENTS",
-        "@SOMAIYANEWS"
-      ],
+    "LunastalkerBot": {
+      "api_id": 7973185,
+      "api_hash": "your_api_hash_here",
+      "phone": "+1234567890",
+      "groups": ["@Nssbcoder", "@COINDCX_ANNOUNCEMENTS", "@SOMAIYANEWS"],
       "webhook": {
-        "url": "https://webhook.site/34ab8687-5a34-4178-a448-cb1f3ffb9b38",
+        "url": "https://webhook.site/your-unique-id",
         "interval_minutes": 60
       }
     }

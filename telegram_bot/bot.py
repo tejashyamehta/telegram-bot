@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import aiohttp
+import os
 
 from telethon import TelegramClient, events
 from telethon.tl.functions.messages import GetDialogsRequest
@@ -14,8 +15,8 @@ from utils.summarizer import generate_summary
 
 # Configure logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,9 @@ class TelegramMonitor:
         self.running = False
         self.summary_task = None
         
+        # Create session directory if it doesn't exist
+        os.makedirs("sessions", exist_ok=True)
+        
     async def start(self):
         """Start the Telegram monitoring bot"""
         if self.running:
@@ -49,77 +53,103 @@ class TelegramMonitor:
         
         logger.info(f"Starting bot {self.name}")
         
-        # Initialize Telegram client
-        self.client = TelegramClient(
-            self.name,
-            self.api_id,
-            self.api_hash
-        )
-        
-        # Connect and authenticate
-        await self.client.start(phone=self.phone)
-        
-        if not await self.client.is_user_authorized():
-            logger.error("Authentication failed")
-            return
-        
-        logger.info("Successfully authenticated")
-        
-        # Join groups
-        await self._join_groups()
-        
-        # Register message handler
-        @self.client.on(events.NewMessage)
-        async def handler(event):
-            await self._process_message(event)
-        
-        self.running = True
-        
-        # Start summary task if webhook is set
-        if self.webhook_url:
-            self._start_summary_task()
-        
-        # Keep the client running
-        await self.client.run_until_disconnected()
+        try:
+            # Initialize Telegram client with session in the sessions directory
+            session_path = os.path.join("sessions", self.name)
+            self.client = TelegramClient(
+                session_path,
+                self.api_id,
+                self.api_hash
+            )
+            
+            # Connect to Telegram
+            await self.client.connect()
+            
+            # Check if already authorized
+            if not await self.client.is_user_authorized():
+                logger.info(f"Not authorized. Sending code request to {self.phone}")
+                await self.client.send_code_request(self.phone)
+                
+                # This will prompt for the code in the console
+                logger.info("Please check your Telegram messages and enter the code:")
+                code = input("Enter the code: ")
+                
+                try:
+                    await self.client.sign_in(self.phone, code)
+                except Exception as e:
+                    logger.error(f"Error during sign in: {str(e)}")
+                    return
+            
+            logger.info("Successfully authenticated")
+            
+            # Join groups
+            await self._join_groups()
+            
+            # Register message handler
+            @self.client.on(events.NewMessage)
+            async def handler(event):
+                await self._process_message(event)
+            
+            self.running = True
+            
+            # Start summary task if webhook is set
+            if self.webhook_url:
+                self._start_summary_task()
+            
+            # Keep the client running
+            logger.info("Bot is now monitoring messages")
+            await self.client.run_until_disconnected()
+            
+        except Exception as e:
+            logger.error(f"Error starting bot: {str(e)}")
+            raise
     
     async def _join_groups(self):
         """Join the specified Telegram groups"""
         logger.info(f"Joining {len(self.groups)} groups")
         
-        # Get dialogs to find groups
-        dialogs = await self.client(GetDialogsRequest(
-            offset_date=None,
-            offset_id=0,
-            offset_peer=InputPeerEmpty(),
-            limit=100,
-            hash=0
-        ))
-        
-        # Find existing groups
-        existing_groups = {}
-        for dialog in dialogs.dialogs:
-            if dialog.peer and isinstance(dialog.peer.channel_id, int):
-                entity = await self.client.get_entity(dialog.peer)
-                if isinstance(entity, Channel):
-                    existing_groups[entity.username.lower() if entity.username else ''] = entity
-        
-        # Join new groups
-        for group in self.groups:
-            group_username = group.replace('@', '').lower()
+        try:
+            # Get dialogs to find groups
+            dialogs = await self.client(GetDialogsRequest(
+                offset_date=None,
+                offset_id=0,
+                offset_peer=InputPeerEmpty(),
+                limit=100,
+                hash=0
+            ))
             
-            if group_username in existing_groups:
-                logger.info(f"Already a member of {group}")
-                continue
+            # Find existing groups
+            existing_groups = {}
+            for dialog in dialogs.dialogs:
+                try:
+                    entity = await self.client.get_entity(dialog.peer)
+                    if isinstance(entity, Channel):
+                        username = getattr(entity, 'username', '')
+                        if username:
+                            existing_groups[username.lower()] = entity
+                except Exception as e:
+                    logger.error(f"Error getting entity: {str(e)}")
             
-            try:
-                # Try to join the group
-                await self.client(JoinChannelRequest(group))
-                logger.info(f"Successfully joined {group}")
+            # Join new groups
+            for group in self.groups:
+                group_username = group.replace('@', '').lower()
                 
-                # Wait a bit to avoid rate limiting
-                await asyncio.sleep(2)
-            except Exception as e:
-                logger.error(f"Failed to join {group}: {str(e)}")
+                if group_username in existing_groups:
+                    logger.info(f"Already a member of {group}")
+                    continue
+                
+                try:
+                    # Try to join the group
+                    await self.client(JoinChannelRequest(group))
+                    logger.info(f"Successfully joined {group}")
+                    
+                    # Wait a bit to avoid rate limiting
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.error(f"Failed to join {group}: {str(e)}")
+        
+        except Exception as e:
+            logger.error(f"Error joining groups: {str(e)}")
     
     async def _process_message(self, event):
         """Process and store a new message"""
@@ -133,16 +163,19 @@ class TelegramMonitor:
             chat_title = getattr(chat, 'title', str(chat_id))
             
             # Get sender information
+            sender_id = None
+            sender_name = None
+            
             if message.sender_id:
-                sender = await event.get_sender()
-                sender_id = sender.id
-                sender_name = getattr(sender, 'username', None) or getattr(sender, 'first_name', str(sender_id))
-            else:
-                sender_id = None
-                sender_name = None
+                try:
+                    sender = await event.get_sender()
+                    sender_id = sender.id
+                    sender_name = getattr(sender, 'username', None) or getattr(sender, 'first_name', str(sender_id))
+                except Exception as e:
+                    logger.error(f"Error getting sender: {str(e)}")
             
             # Extract message content
-            content = message.message
+            content = message.message if message.message else "[No text content]"
             
             # Store in database
             await self.storage.store_message(
@@ -211,5 +244,9 @@ class TelegramMonitor:
         if not self.storage:
             return {}
         
-        stats = await self.storage.get_stats()
-        return stats
+        try:
+            stats = await self.storage.get_stats()
+            return stats
+        except Exception as e:
+            logger.error(f"Error getting stats: {str(e)}")
+            return {"error": str(e)}
