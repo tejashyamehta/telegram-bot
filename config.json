@@ -1,0 +1,20 @@
+{
+  "host": "0.0.0.0",
+  "port": 8000,
+  "bots": {
+    "LunastalkerBot": { 
+      "api_id": "Enter your Api Id here",
+      "api_hash": "Enter your hash here",
+      "phone": "+917021427911",
+      "groups": [
+        "@Nssbcoder",
+        "@COINDCX_ANNOUNCEMENTS",
+        "@SOMAIYANEWS"
+      ],
+      "webhook": {
+        "url": "https://webhook.site/34ab8687-5a34-4178-a448-cb1f3ffb9b38",
+        "interval_minutes": 60
+      }
+    }
+  }
+}
